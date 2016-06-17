@@ -21,10 +21,11 @@ int main()
     mkfifo(IN_FIFO, 0666);
     mkfifo(OUT_FIFO, 0666);
 
-    int outfd = open(OUT_FIFO, O_WRONLY);
-    perror("Error after outfd open: ");
     int infd = open(IN_FIFO, O_RDONLY | O_NONBLOCK);
     perror("Error after infd open: ");
+    int outfd = open(OUT_FIFO, O_WRONLY);
+    perror("Error after outfd open: ");
+
 
     char buf[MAX_BUF];
     int got;
