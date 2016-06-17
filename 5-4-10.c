@@ -26,10 +26,12 @@ int main()
     perror("Error after infd open: ");
 
     char buf[MAX_BUF];
-    for (;;)
-    {
-        int got = read(infd, buf, MAX_BUF);
+
+    while ( int got = read(infd, buf, MAX_BUF) ) {
+        printf("Read: %s\n", bf);
         write(outfd, buf, got);
+
+        memset(buf, 0, 12);
     }
 
     close(outfd);
