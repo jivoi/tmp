@@ -4,42 +4,40 @@
 
 // Пусть программа читает in.fifo и все прочитанное записывает в out.fifo.
 
+
+#include <stdio.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <string.h>
 
+#define IN_FIFO "/home/box/in.fifo"
+#define OUT_FIFO "/home/box/out.fifo"
 #define MAX_BUF 2048
 
 int main()
 {
-    char * outfifo = "/home/box/out.fifo";
-    char * infifo = "/home/box/in.fifo";
+    mkfifo(IN_FIFO, 0666);
+    mkfifo(OUT_FIFO, 0666);
 
-    /* create the FIFO (named pipe) */
-    mkfifo(infifo, 0666);
-    mkfifo(outfifo, 0666);
-
-    int outfd = open(outfifo, O_WRONLY);
+    int outfd = open(OUT_FIFO, O_WRONLY);
     perror("Error after outfd open: ");
-    int infd = open(infifo, O_RDONLY | O_NONBLOCK);
+    int infd = open(IN_FIFO, O_RDONLY | O_NONBLOCK);
     perror("Error after infd open: ");
 
     char buf[MAX_BUF];
-
-    while ( int got = read(infd, buf, MAX_BUF) ) {
-        printf("Read: %s\n", bf);
+    int got;
+    while ( got = read(infd, buf, MAX_BUF) ) {
+        printf("Read: %s\n", buf);
         write(outfd, buf, got);
-
         memset(buf, 0, 12);
     }
 
     close(outfd);
     close(infd);
-
-    /* remove the FIFO */
-    unlink(infifo);
-    unlink(outfifo);
+    unlink(IN_FIFO);
+    unlink(OUT_FIFO);
 
     return 0;
 }
