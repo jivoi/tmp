@@ -21,7 +21,7 @@ int main()
     mkfifo(IN_FIFO, 0666);
     mkfifo(OUT_FIFO, 0666);
 
-    int infd = open(IN_FIFO, O_RDONLY | O_NONBLOCK);
+    int infd = open(IN_FIFO, O_RDONLY);
     perror("Error after infd open: ");
     int outfd = open(OUT_FIFO, O_WRONLY);
     perror("Error after outfd open: ");
