@@ -1,170 +1,284 @@
-//#include <sys/types.h>
-//#include <sys/socket.h>
-#include <ctype.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
 #include <iostream>
-#include <algorithm>
-#include <set>
-#include <map>
-#include <arpa/inet.h>
+#include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <set>
+#include <algorithm>
+#include <sys/epoll.h>
+#include <thread>
 #include <string.h>
 #include <sstream>
-#include <vector>
-#include <thread>
-#include <fstream>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-noreturn"
+
+#define MAX_EVENTS 32
+#define MAX_ARG 24
 
 
-
-#define MAX_REQUEST_SIZE 1024
-
-
-std::string http_parser(std::string request) {
-    std::stringstream ss(request);
-    std::string temp;
-    ss >> temp;
-    ss >> temp;
-    size_t pos =  temp.find("html?");
-    if (pos != std::string::npos)
-        return temp.substr(1, pos + 4);
-    else return temp.substr(1);
-}
-
-static const char* templ = "HTTP/1.0 200 OK\r\n"
-
-                           "Content-length: %d\r\n"
-
-                           "Connection: close\r\n"
-
-                           "Content-Type: text/html\r\n""\r\n""%s";
-
-static const char not_found[] = "HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\nContent-Type: text/html\r\n\r\n";
-
-char *get_ip_str(const struct sockaddr *sa, char *s, size_t maxlen)
-{
-    switch (sa->sa_family) {
-    case AF_INET:
-        inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr),
-                  s, maxlen);
-        break;
-
-    case AF_INET6:
-        inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr),
-                  s, maxlen);
-        break;
-
-    default:
-        strncpy(s, "Unknown AF", maxlen);
-        return NULL;
-    }
-
-    return s;
-}
+char *DIRECTORY = NULL;
 
 
 int set_nonblock(int fd) {
     int flags;
-#ifdef O_NONBLOCK
-    if (-1 == (flags = fcntl(fd, F_GETFL, 0)))
+#if defined(O_NONBLOCK)
+    if (-1 == (flags = fcntl(fd, F_GETFL, 0))) {
         flags = 0;
-    return fcntl(fd, F_SETFL, flags | O_NONBLOCK); //posix standartized
+    }
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 #else
     flags = 1;
-    return ioctl(fd, FIOBIO, &flags);   // unix, may change its behavior depend on  OS and/or type of file descriptor
+    return ioctl(fd, FIOBIO, &flags);
 #endif
-
 }
 
-void worker(int SlaveSocket)
-{
-    char Buffer[1024];
-    int size = recv(SlaveSocket, Buffer, 1024, MSG_NOSIGNAL);
-    Buffer[size] = '\n';
+void f(int fd) {
+    std::cout << "from thread: " << fd << std::endl;
 
-    std::string name = http_parser(std::string(Buffer));
-    std::ifstream ifs(name.c_str());
-    if (ifs.good()) {
-        std::string content( (std::istreambuf_iterator<char>(ifs) ), (std::istreambuf_iterator<char>()    ) );
-        sprintf(Buffer, templ, content.length(), content.c_str());
-        int result = send(SlaveSocket, Buffer, strlen(Buffer), MSG_NOSIGNAL);
-    } else {
-        int result = send(SlaveSocket, not_found, strlen(not_found), MSG_NOSIGNAL);
+    // Slave socket.
+    // Receive a message and then send the message back.
+//  static char Buffer[1024];
+    char Buffer[1024] = {0};
+
+    // Receive a message.
+    int RecvSize = (int) recv(
+                       fd,
+                       Buffer,
+                       1024,
+                       MSG_NOSIGNAL
+                   );
+
+    std::stringstream ss_file_name(Buffer);
+
+    std::string token = "";
+    std::string path = "";
+
+    while (ss_file_name >> token) {
+//    http_request.push_back(token);
+
+        std::size_t found = token.find("GET");
+
+        if (found != std::string::npos) {
+//      std::cout << found <<'\n';
+
+            continue;
+        }
+
+        path = token;
+        break;
+
+        printf("%s\n", token.c_str());
     }
-    shutdown(SlaveSocket, SHUT_RDWR);
-    close(SlaveSocket);
+
+    std::size_t found = path.find('?');
+
+    if (found != std::string::npos) {
+        std::cout << found << '\n';
+
+        path = path.substr (0, found);
+    }
+
+    std::cout << "path = " << path << '\n';
+
+
+    std::stringstream ss;
+
+
+    FILE *file_in = NULL;
+    char buff[255] = {0};
+
+    std::string file_in_name = DIRECTORY;
+//  file_in_name += "/index.html";
+
+    file_in_name += path;
+    size_t size = 0;
+
+    // Read from a file.
+    file_in = fopen(file_in_name.c_str(), "r");
+
+    if (file_in) {
+        std::string tmp;
+        fgets(buff, 255, file_in);
+
+        tmp += buff;
+
+//  std::string tmp = "<b>Hello world!</b>";
+
+        fclose(file_in);
+
+        ss << "HTTP/1.0 200 OK";
+        ss << "\r\n";
+        ss << "Content-length: ";
+        ss << tmp.size();
+        ss << "\r\n";
+        ss << "Content-Type: text/html";
+        ss << "\r\n\r\n";
+        ss << tmp;
+
+        printf("ss = %s", ss.str().c_str());
+
+        size = ss.str().size();
+
+        strncpy(Buffer, ss.str().c_str(), size);
+    } else {
+        ss << "HTTP/1.0 404 NOT FOUND";
+        ss << "\r\n";
+        ss << "Content-length: ";
+        ss << 0;
+        ss << "\r\n";
+        ss << "Content-Type: text/html";
+        ss << "\r\n\r\n";
+
+        printf("ss = %s", ss.str().c_str());
+
+        size = ss.str().size();
+
+        strncpy(Buffer, ss.str().c_str(), size);
+    }
+
+    // In case of an error close the connection.
+    // Otherwise send a received message back.
+    if ((RecvSize == 0) && (errno != EAGAIN)) {
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+    } else if (RecvSize > 0) {
+//    send(fd, Buffer, RecvSize, MSG_NOSIGNAL);
+
+        send(fd, Buffer, size, MSG_NOSIGNAL);
+    }
 }
 
-int main(int argc, char *argv[]) {
-    int par = 0;
-    char * ip;
-    int port;
-    char * dir;
-    // if (argc != 7) {
-    //     printf("Error num args!\n");
-    //     return -2;
-    // }
+int main(int argc, char **argv) {
+    int opt;
 
-    while ( (par = getopt(argc, argv, ":h:p:d:")) != -1) {
-        switch (par)
-        {
+    char *ip = new char[MAX_ARG];
+    int port = 12345;
+//  char *directory = new char[MAX_ARG];
+    DIRECTORY = new char[MAX_ARG];
+
+    //  -h<ip> -p<port> -d<directory>
+    while ((opt = getopt(argc, argv, "h:p:d:")) != -1) {
+        switch (opt) {
         case 'h':
-            ip = optarg;
+            strncpy(ip, optarg, MAX_ARG);
             break;
         case 'p':
             port = atoi(optarg);
             break;
         case 'd':
-            dir = optarg;
+            strncpy(DIRECTORY, optarg, MAX_ARG);
             break;
         default:
-            printf("Error!\n");
-            return -3;
-        };
+            fprintf(stderr, "Usage: %s -h<ip> -p<port> -d<directory>\n",
+                    argv[0]);
+            exit(EXIT_FAILURE);
+        }
     }
-    int   pid = fork();
 
-    if (pid == -1)
-    {
-        printf("Error: Start Daemon failed (%s)\n", strerror(errno));
-        return -1;
+    printf("ip=%s; port=%d; directory=%s;\n",
+           ip, port, DIRECTORY);
+
+    // For demon.
+    pid_t pid;
+
+    pid = fork();
+
+    if (pid < 0) {
+        exit(EXIT_FAILURE);
     }
-    else if (!pid) // potomok
-    {
+
+    if (pid > 0) {
+        exit(EXIT_SUCCESS);
+    }
+
+    if (pid == 0) {
         setsid();
-        chdir(dir);
-
-        //we don't need it
         close(STDIN_FILENO);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-
-        int MasterSocket = socket( /* listen */
-                               AF_INET/* IPv4*/,
-                               SOCK_STREAM/* TCP */,
-                               IPPROTO_TCP);
-        struct sockaddr_in SockAddr;
-        SockAddr.sin_family = AF_INET;
-        SockAddr.sin_port = htons(port);
-        SockAddr.sin_addr.s_addr = htons(INADDR_ANY); //0.0.0.0
-        bind(MasterSocket, (struct sockaddr*)(&SockAddr), sizeof(SockAddr));
-        //set_nonblock(MasterSocket);
-
-        listen(MasterSocket, SOMAXCONN);
-
-        while (1) {
-            int SlaveSocket  = accept(MasterSocket, 0, 0);
-            std::thread thr(worker, SlaveSocket);
-            thr.detach();
-        }
     }
-    else // parent
-    {
-        return 0;
+
+    int MasterSocket = socket(AF_INET,
+                              SOCK_STREAM,
+                              IPPROTO_TCP);
+
+    struct sockaddr_in SockAddr;
+    SockAddr.sin_family = AF_INET;
+    SockAddr.sin_port = htons((uint16_t) port);
+    SockAddr.sin_addr.s_addr = inet_addr(ip);
+
+    int enable = 1;
+    if (setsockopt(MasterSocket,
+                   SOL_SOCKET,
+                   SO_REUSEADDR,
+                   &enable,
+                   sizeof(int)) < 0) {
+        std::cout << strerror(errno) << std::endl;
+        return 1;
+    }
+
+    bind(MasterSocket,
+         (struct sockaddr *) &SockAddr,
+         sizeof(SockAddr));
+
+    set_nonblock(MasterSocket);
+
+    listen(MasterSocket, SOMAXCONN);
+
+    int Epoll = epoll_create1(0);
+
+    struct epoll_event Event;
+
+    // Add master socket to epoll.
+    Event.data.fd = MasterSocket;
+    Event.events = EPOLLIN;
+
+    epoll_ctl(Epoll, EPOLL_CTL_ADD, MasterSocket, &Event);
+
+    // Loop.
+    while (true) {
+        struct epoll_event Events[MAX_EVENTS];
+
+        int N = epoll_wait(Epoll, Events, MAX_EVENTS, -1);
+
+        if (N == -1) {
+            std::cout << strerror(errno) << std::endl;
+            return 1;
+        }
+
+
+        for (unsigned int i = 0; i < N; i++) {
+            if (Events[i].data.fd == MasterSocket) {
+                // Master socket.
+                // Accept a connection.
+                int SlaveSocket = accept(MasterSocket, 0, 0);
+                set_nonblock(SlaveSocket);
+
+                // Add slave socket to epoll.
+                struct epoll_event SlaveEvent;
+                SlaveEvent.data.fd = SlaveSocket;
+                SlaveEvent.events = EPOLLIN;
+                epoll_ctl(Epoll, EPOLL_CTL_ADD, SlaveSocket, &SlaveEvent);
+            } else {
+                // Slave socket.
+                // Receive a message and then send the message back.
+                int fd = Events[i].data.fd;
+
+                // Multithreading mode.
+                epoll_ctl(Epoll, EPOLL_CTL_DEL, fd, 0);
+                std::thread t(f, fd);
+                t.detach();
+
+                // Serial mode.
+//        f(fd);
+            }
+        }
     }
 
     return 0;
 }
+
+#pragma clang diagnostic pop
